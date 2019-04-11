@@ -133,7 +133,7 @@ def loss_function(recon_x, x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, 
 	return MSE + KL_f + KL_z
 
 # train our model
-def train(data, net):
+def train(data, net, z_prior = False):
    
 	start = time.time()
 
@@ -146,6 +146,9 @@ def train(data, net):
 		for x in data:
 			optimizer.zero_grad()
 			recon_x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z = net(x)
+			if not z_prior:
+				mu_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
+				logvar_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
 			loss = loss_function(recon_x, x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z)
 			loss.backward()
 			optimizer.step()
@@ -158,23 +161,39 @@ def train(data, net):
 	return losses
 
 #how our data is generated
+# def sample_data():
+# 	sigma_z = 1
+# 	sigma_x = 0.5
+# 	lamb = 0.2
+# 	w = torch.FloatTensor([[0.2,0.5],[-0.7,-0.3]])
+
+# 	#latent variables
+# 	z_1 = torch.randn(2,1)*sigma_z/math.sqrt(1 - lamb**2)
+# 	z_2 = lamb*z_1 + torch.randn(2,1)*sigma_z
+
+# 	x_1 = torch.mm(w,z_1) + torch.randn(2,1)*sigma_x
+# 	x_2 = torch.mm(w,z_2) + torch.randn(2,1)*sigma_x
+
+# 	return [x_1.view(-1,2), x_2.view(-1,2)]
+
 def sample_data():
-	sigma_z = 1
+	sigma_f = 2.0
+	sigma_z = 1.0
 	sigma_x = 0.5
-	lamb = 0.2
+
 	w = torch.FloatTensor([[0.2,0.5],[-0.7,-0.3]])
 
-	#latent variables
-	z_1 = torch.randn(2,1)*sigma_z/math.sqrt(1 - lamb**2)
-	z_2 = lamb*z_1 + torch.randn(2,1)*sigma_z
+	f = torch.randn(1,2)*sigma_f
 
-	x_1 = torch.mm(w,z_1) + torch.randn(2,1)*sigma_x
-	x_2 = torch.mm(w,z_2) + torch.randn(2,1)*sigma_x
+	z = [torch.randn(1,2)*sigma_z for i in range(3)]
 
-	return [x_1.view(-1,2), x_2.view(-1,2)]
+	x = [f + torch.mm(i,w) + torch.randn(1,2)*sigma_x for i in z]
+
+	return x
+
 
 data = [sample_data() for i in range(10)]
-net = SequentialVAE(2, 2, 1)
+net = SequentialVAE(2, 2, 2)
 losses = train(data, net)
 plt.plot(losses)
 plt.show()
