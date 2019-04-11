@@ -5,6 +5,7 @@ from torch import nn, optim
 from torch.nn import functional as F
 from IPython import embed
 import time
+import math
 import matplotlib.pyplot as plt
 
 # probably want to figure out how to use a more sophisticated RNN for higher dimensional data (LSTM, etc.)
@@ -19,7 +20,7 @@ class RNN(nn.Module):
 		self.softmax = nn.LogSoftmax(dim=1)
 
 	def forward(self, input, hidden):
-
+		
 		combined = torch.cat((input, hidden), 1)
 		hidden = self.i2h(combined)
 		output = self.i2o(combined)
@@ -158,14 +159,22 @@ def train(data, net):
 
 #how our data is generated
 def sample_data():
-	z1 = torch.randn(1)
-	z2 = torch.randn(1) + z1
-	x1 = torch.randn(1) + z1
-	x2 = torch.randn(1) + z2
-	return [x1.view(1,-1),x2.view(1,-1)]
+	sigma_z = 1
+	sigma_x = 0.5
+	lamb = 0.2
+	w = torch.FloatTensor([[0.2,0.5],[-0.7,-0.3]])
+
+	#latent variables
+	z_1 = torch.randn(2,1)*sigma_z/math.sqrt(1 - lamb**2)
+	z_2 = lamb*z_1 + torch.randn(2,1)*sigma_z
+
+	x_1 = torch.mm(w,z_1) + torch.randn(2,1)*sigma_x
+	x_2 = torch.mm(w,z_2) + torch.randn(2,1)*sigma_x
+
+	return [x_1.view(-1,2), x_2.view(-1,2)]
 
 data = [sample_data() for i in range(10)]
-net = SequentialVAE(1, 1, 1)
+net = SequentialVAE(2, 2, 1)
 losses = train(data, net)
 plt.plot(losses)
 plt.show()
