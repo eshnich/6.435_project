@@ -267,7 +267,10 @@ def train(data, net, z_prior = False):
 
 	for epoch in range(10000):
 		total_loss = 0
+		count = 0
 		for x in data:
+			print(epoch, count)
+			count+=1
 			optimizer.zero_grad()
 			recon_x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z = net(x)
 			if not z_prior:
@@ -334,7 +337,9 @@ X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel t
 latent_dimz = 9 # total of 9 different actions 
 latent_dimf = 1296 # total number of types of characters
 net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
+torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
 losses = train(X_train, net)
+torch.save(net.state_dict(), 'SavedModels/post_train.pt') #remeber to change this for different models
 plt.plot(losses)
 plt.show()
 embed()
