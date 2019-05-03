@@ -9,6 +9,17 @@ import time
 import math
 import matplotlib.pyplot as plt
 
+
+if torch.cuda.is_available():
+        print("CUDA IS AVAILABLE")
+        device = torch.device("cuda:0")
+        print("DEVICE:", device)
+else:
+        print("CUDE IS NOT AVAILABLE")
+        device = torch.device("cpu")
+        print(device)
+
+
 # probably want to figure out how to use a more sophisticated RNN for higher dimensional data (LSTM, etc.)
 class RNN(nn.Module):
 	def __init__(self, input_size, hidden_size, output_size):
@@ -55,8 +66,8 @@ class CNNSequentialVAE(nn.Module):
 		self.fc22 = nn.Linear(in_features=256, out_features=self.latent_dimf)
 		RNN_hidden_dim = 3
 		# self.RNN = RNN(3* self.x_height * self.x_width, RNN_hidden_dim, 2*self.latent_dimf)
-		self.RNN = RNN(256*2*2, RNN_hidden_dim, 2*self.latent_dimf) # for debugging 
-		
+		self.RNN = RNN(256*2*2, RNN_hidden_dim, 2*self.latent_dimf).cuda() 
+			
 		# for the decoder
 		# self.fc0 = nn.Linear(in_features=self.latent_dimz, out_features = 256*30*30)
 		self.fc1 = nn.Linear(in_features=self.latent_dimz+self.latent_dimf, out_features=256*2*2)
@@ -87,7 +98,7 @@ class CNNSequentialVAE(nn.Module):
 	
 	# compute parameters for q(f | x[1:T])
 	def encode_f(self, x):
-		hidden = self.RNN.initHidden()
+		hidden = self.RNN.initHidden().cuda()
 		for i in range(self.frames):
 			h = x[i]
 			h = h.view(-1, self.image_channels, self.x_height, self.x_width)
@@ -96,13 +107,13 @@ class CNNSequentialVAE(nn.Module):
 			h = F.elu(self.conv3(h))
 			h = F.elu(self.conv4(h))
 			#h = h.view(-1, 3* self.x_height * self.x_width) #this might be wrong
-			h = h.view(1, -1) # this might be wrong
+			h = h.view(1, -1).cuda() # this might be wronog
 			output, hidden = self.RNN(h, hidden)
 		mu, logvar = torch.split(output, self.latent_dimf, dim=1)
 		return mu, logvar
 
 	def prior(self, z):
-		hidden = self.RNN_prior.initHidden()
+		hidden = self.RNN_prior.initHidden().cuda()
 		mu_prior = []
 		logvar_prior = []
 		for i in range(len(z)):
@@ -149,7 +160,7 @@ class CNNSequentialVAE(nn.Module):
 			mu_z.append(mu_z_i)
 			logvar_z.append(logvar_z_i)
 
-		recon_x = [self.decode(z[i], f) for i in range(len(z))]
+		recon_x = [self.decode(z[i].cuda(), f.cuda()) for i in range(len(z))]
 		mu_prior, logvar_prior = self.prior(z)
 		return recon_x, mu_f, logvar_f, mu_prior, logvar_prior, mu_z, logvar_z
 
@@ -247,12 +258,14 @@ class SequentialVAE(nn.Module):
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z):
 	#Loss = -ELBO = -E_q[log p(x | z,f)] + KL(q(f|x) | p(f)) + KL(q(z|x) | p(z))
-	MSE = sum([0.5*F.mse_loss(recon_x[i], x[i]) for i in range(len(x))]) # MC estimate of -E_q[log p(x | z,f)]
+	MSE = sum([0.5*F.mse_loss(recon_x[i].squeeze(), x[i].squeeze()) for i in range(len(x))]) # MC estimate of -E_q[log p(x | z,f)]
 	KL_f = -0.5 * torch.sum(1 + logvar_f - mu_f.pow(2) - logvar_f.exp()) # exact value of KL(q(f|x)|p(f))
 	KL_z = 0 # MC estimate of KL(q(z|x) | p(z))
 	for i in range(len(mu_z)):
+		mu_z[i] = mu_z[i].cuda()
+		mu_prior_z[i] = mu_prior_z[i].cuda()
 		mu_diff = mu_z[i] - mu_prior_z[i]
-		KL_z += -0.5 * torch.sum(1 + logvar_z[i] - logvar_prior_z[i] - logvar_z[i].exp()/logvar_prior_z[i].exp() - mu_diff.pow(2)/logvar_prior_z[i].exp())
+		KL_z += -0.5 * torch.sum(1 + logvar_z[i].cuda() - logvar_prior_z[i].cuda() - logvar_z[i].cuda().exp()/logvar_prior_z[i].cuda().exp() - mu_diff.cuda().pow(2)/logvar_prior_z[i].cuda().exp())
 
 	return MSE + KL_f + KL_z
 
@@ -268,6 +281,8 @@ def train(data, net, z_prior = False):
 	for epoch in range(10000):
 		total_loss = 0
 		count = 0
+		if epoch == 0:
+			torch.save(net.state_dict(), 'SavedModels/train_epoch_%d.pt' % epoch)
 		for x in data:
 			print(epoch, count)
 			count+=1
@@ -282,6 +297,7 @@ def train(data, net, z_prior = False):
 
 			total_loss += loss.data.item()
 		if (epoch + 1)%100 == 0:
+			torch.save(net.state_dict(), 'SavedModels/train_epoch_%d.pt' % epoch)
 			print(total_loss/len(data))
 			losses.append(total_loss/len(data))
 
@@ -334,9 +350,14 @@ X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_label
 
 X_train = torch.from_numpy(X_train)
 X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel to the correct location
+
+
+X_train = X_train.to(device)
+X_train = X_train.cuda()
 latent_dimz = 9 # total of 9 different actions 
 latent_dimf = 1296 # total number of types of characters
 net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
+net.to(device)
 torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
 losses = train(X_train, net)
 torch.save(net.state_dict(), 'SavedModels/post_train.pt') #remeber to change this for different models
