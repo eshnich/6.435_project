@@ -137,8 +137,8 @@ class CNNSequentialVAE(nn.Module):
 		x = F.elu(self.conv_t1(x))
 		x = F.elu(self.conv_t2(x))
 		x = F.elu(self.conv_t3(x))
-		x = F.elu(self.conv_t4(x))
-		x = F.elu(self.sigmoid(x))
+		x = self.conv_t4(x)
+		x = self.sigmoid(x)
 		return x
 
 	# forward pass of the algorithm 
@@ -216,8 +216,8 @@ def train(data, net, z_prior = False):
 		print(total_loss/len(data))
 		losses.append(total_loss/len(data))
 		
-		if (epoch + 1)%100 == 0:
-			torch.save(net.state_dict(), 'SavedModels/train_epoch_%d.pt' % epoch)
+		#if (epoch + 1)%500 == 0:
+		#	torch.save(net.state_dict(), 'SavedModels/train_epoch_%d.pt' % epoch)
 
 	return losses
 
@@ -242,15 +242,16 @@ X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel t
 X_train = X_train.to(device)
 
 #subsample to 100 points
-X_train = X_train.narrow(0, 0, 100).cuda() 
+#X_train = X_train.narrow(0, 0, 100).cuda() 
+X_train = X_train[0:10].cuda()
 
-latent_dimz = 9 # total of 9 different actions 
-latent_dimf = 1296 # total number of types of characters
+latent_dimz = 32 # total of 9 different actions 
+latent_dimf = 256 # total number of types of characters
 net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
 net.to(device)
 torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
 losses = train(X_train, net)
-torch.save(net.state_dict(), 'SavedModels/post_train.pt') #remeber to change this for different models
+torch.save(net.state_dict(), 'SavedModels/post_train_test.pt') #remeber to change this for different models
 plt.plot(losses)
 plt.show()
 
