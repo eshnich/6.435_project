@@ -52,29 +52,35 @@ class CNNSequentialVAE(nn.Module):
 		self.latent_dimf = latent_dimf # dimension of f
 		
 		# for the encoder
-		self.conv1 = nn.Conv2d(in_channels=image_channels, out_channels=32, kernel_size=(4, 4), stride=2)
-		self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(4, 4), stride=2)
-		self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(4, 4), stride=2)
-		self.conv4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=(4, 4), stride=2)	
+		self.conv1 = nn.Conv2d(in_channels=image_channels, out_channels=32, kernel_size=(3, 3), stride=1, padding = (1,1))
+		self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(3, 3), stride=1, padding = (1,1))
+		self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(2, 2), stride=2)
+		self.conv4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=(2, 2), stride=2)	
 		
 		#for the encoder for z, q(z_t|x_t)
-		self.fc11 = nn.Linear(in_features=256*2*2, out_features=self.latent_dimz)
-		self.fc12 = nn.Linear(in_features=256*2*2, out_features=self.latent_dimz)
+		encoder_hidden_dim = 512
+		self.hidden_layer = nn.Linear(in_features = 256*2*2, out_features = encoder_hidden_dim)
+		self.fc11 = nn.Linear(in_features=encoder_hidden_dim, out_features=self.latent_dimz)
+		self.fc12 = nn.Linear(in_features=encoder_hidden_dim, out_features=self.latent_dimz)
 
 		#for the encoder for f, q(f|x_1:T)
 		self.fc21 = nn.Linear(in_features=256, out_features=self.latent_dimf)
 		self.fc22 = nn.Linear(in_features=256, out_features=self.latent_dimf)
 		
-		RNN_hidden_dim = 3
-		self.RNN = RNN(256*2*2, RNN_hidden_dim, 2*self.latent_dimf).cuda() 
+		RNN_hidden_dim = 512
+		self.RNN = RNN(256*2*2, RNN_hidden_dim, 2*self.latent_dimf)#.cuda() 
 			
 		# for the decoder
-		# self.fc0 = nn.Linear(in_features=self.latent_dimz, out_features = 256*30*30)
-		self.fc1 = nn.Linear(in_features=self.latent_dimz+self.latent_dimf, out_features=256*2*2)
-		self.conv_t1 = nn.ConvTranspose2d(in_channels=256, out_channels=128, kernel_size=(4, 4), stride=2)
-		self.conv_t2 = nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=(4, 4), stride=2)
-		self.conv_t3 = nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=(5, 5), stride=2)
-		self.conv_t4 = nn.ConvTranspose2d(in_channels=32, out_channels=3, kernel_size=(4, 4), stride=2)
+		decoder_mlp_hidden_dim = 512
+		self.fc0 = nn.Linear(in_features=self.latent_dimz+self.latent_dimf, out_features = decoder_mlp_hidden_dim)
+		self.fc1 = nn.Linear(in_features=decoder_mlp_hidden_dim, out_features=256*2*2)
+		self.conv_t1 = nn.ConvTranspose2d(in_channels=256, out_channels=128, kernel_size=(2, 2), stride=2)
+
+		self.conv_t2 = nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=(2, 2), stride=2)
+
+		self.conv_t3 = nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=(3, 3), stride=1, padding = (1,1))
+
+		self.conv_t4 = nn.ConvTranspose2d(in_channels=32, out_channels=3, kernel_size=(3, 3), stride=1, padding = (1,1))
 
 		self.sigmoid = nn.Sigmoid()
 
@@ -82,15 +88,23 @@ class CNNSequentialVAE(nn.Module):
 		RNN_hidden_dim2 = 3
 		self.RNN_prior = RNN(self.latent_dimz, RNN_hidden_dim2, 2*self.latent_dimz)
 
+	#encode visual features of x
+	def encode_visual_features(self, x):
+		vis = []
+
+		for i in range(self.frames):
+			h = x[i].view(-1, self.image_channels, self.x_height, self.x_width)
+			h = F.elu(self.conv1(h))
+			h = F.max_pool2d(F.elu(self.conv2(h)), kernel_size = (2,2))
+			h = F.max_pool2d(F.elu(self.conv3(h)), kernel_size = (2,2))
+			h = F.max_pool2d(F.elu(self.conv4(h)), kernel_size = (2,2))
+			h = h.view(-1, 256*2*2)#.cuda()
+			vis.append(h)
+		return vis
+
 	# compute parameters for q(z_t | x_t)
 	def encode_z(self, x):
-		h = x
-		h = h.view(-1, self.image_channels, self.x_height, self.x_width)
-		h = F.elu(self.conv1(h))
-		h = F.elu(self.conv2(h))
-		h = F.elu(self.conv3(h))
-		h = F.elu(self.conv4(h))
-		h = h.view(-1, 256*2*2).cuda()
+		h = F.elu(self.hidden_layer(x))
 		mu = self.fc11(h)
 		logvar = self.fc12(h)
 		return mu, logvar
@@ -98,21 +112,15 @@ class CNNSequentialVAE(nn.Module):
 	
 	# compute parameters for q(f | x[1:T])
 	def encode_f(self, x):
-		hidden = self.RNN.initHidden(x[0].size()[0]).cuda()
+		hidden = self.RNN.initHidden(x[0].size()[0])#.cuda()
 		for i in range(self.frames):
 			h = x[i]
-			h = h.view(-1, self.image_channels, self.x_height, self.x_width)
-			h = F.elu(self.conv1(h))
-			h = F.elu(self.conv2(h))
-			h = F.elu(self.conv3(h))
-			h = F.elu(self.conv4(h))
-			h = h.view(-1, 256*2*2).cuda()
 			output, hidden = self.RNN(h, hidden)
 		mu, logvar = torch.split(output, self.latent_dimf, dim=1)
 		return mu, logvar
 
 	def prior(self, z):
-		hidden = self.RNN_prior.initHidden(z[0].size()[0]).cuda()
+		hidden = self.RNN_prior.initHidden(z[0].size()[0])#.cuda()
 		mu_prior = []
 		logvar_prior = []
 		for i in range(len(z)):
@@ -132,13 +140,15 @@ class CNNSequentialVAE(nn.Module):
 	def decode(self, z, f):
 		combined = torch.cat((z,f), 1)
 		combined = combined.view(-1, self.latent_dimz+self.latent_dimf)
-		x = F.elu(self.fc1(combined))
+		x = F.elu(self.fc0(combined))
+		x = self.fc1(x)
 		x = x.view(-1, 256, 2, 2)
-		x = F.elu(self.conv_t1(x))
-		x = F.elu(self.conv_t2(x))
-		x = F.elu(self.conv_t3(x))
-		x = F.elu(self.conv_t4(x))
-		x = F.elu(self.sigmoid(x))
+		#embed()
+		x = F.interpolate(F.elu(self.conv_t1(x)), scale_factor=2, mode = 'bilinear', align_corners = False)
+		x = F.interpolate(F.elu(self.conv_t2(x)), scale_factor=2, mode = 'bilinear', align_corners = False)
+		x = F.interpolate(F.elu(self.conv_t3(x)), scale_factor=2, mode = 'bilinear', align_corners = False)
+		x = self.conv_t4(x)
+		x = self.sigmoid(x)
 		return x
 
 	# forward pass of the algorithm 
@@ -149,38 +159,44 @@ class CNNSequentialVAE(nn.Module):
     #       - mu_z, logvar_z: parameters for q(z_t | x_t), a Gaussian
 	def forward(self, x):
 
-		mu_f, logvar_f = self.encode_f(x)
+		vis = self.encode_visual_features(x)
+		mu_f, logvar_f = self.encode_f(vis)
 		f = self.reparameterize(mu_f, logvar_f)
 		z = []
 		mu_z = []
 		logvar_z = []
 		for i in range(self.frames):
-			mu_z_i, logvar_z_i = self.encode_z(x[i])
+			mu_z_i, logvar_z_i = self.encode_z(vis[i])
 			z.append(self.reparameterize(mu_z_i,logvar_z_i))
 			mu_z.append(mu_z_i)
 			logvar_z.append(logvar_z_i)
 
-		recon_x = [self.decode(z[i].cuda(), f.cuda()) for i in range(len(z))]
-		#recon_x = [self.decode(z[i], f) for i in range(len(z))]
+		#recon_x = [self.decode(z[i].cuda(), f.cuda()) for i in range(len(z))]
+		recon_x = [self.decode(z[i], f) for i in range(len(z))]
 
-		mu_prior, logvar_prior = self.prior(z)
-		return recon_x, mu_f, logvar_f, mu_prior, logvar_prior, mu_z, logvar_z
+		#mu_prior, logvar_prior = self.prior(z)
+		return recon_x, mu_f, logvar_f, None, None, mu_z, logvar_z
 
 # Reconstruction + KL divergence losses summed over all elements and batch
-def loss_function(recon_x, x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z):
+def loss_function(recon_x, x, mu_f, logvar_f,mu_z, logvar_z, mu_prior_z=None, logvar_prior_z=None):
 	#Loss = -ELBO = -E_q[log p(x | z,f)] + KL(q(f|x) | p(f)) + KL(q(z|x) | p(z))
-	MSE = sum([0.5*F.mse_loss(recon_x[i].squeeze(), x[i].squeeze()) for i in range(len(x))]) # MC estimate of -E_q[log p(x | z,f)]
+	#embed()
+	recon_x = torch.cat(recon_x, 0)
+	MSE = 0.5*F.mse_loss(recon_x.squeeze(), x.squeeze(), reduction = 'sum')# MC estimate of -E_q[log p(x | z,f)]
 	KL_f = -0.5 * torch.sum(1 + logvar_f - mu_f.pow(2) - logvar_f.exp()) # exact value of KL(q(f|x)|p(f))
+	#print(KL_f.size())
 	KL_z = 0 # MC estimate of KL(q(z|x) | p(z))
 	for i in range(len(mu_z)):
-		mu_z[i] = mu_z[i].cuda()
-		#mu_z[i] = mu_z[i]
-		mu_prior_z[i] = mu_prior_z[i].cuda()
-		#mu_prior_z[i] = mu_prior_z[i]
-		mu_diff = mu_z[i] - mu_prior_z[i]
-		KL_z += -0.5 * torch.sum(1 + logvar_z[i].cuda() - logvar_prior_z[i].cuda() - logvar_z[i].cuda().exp()/logvar_prior_z[i].cuda().exp() - mu_diff.cuda().pow(2)/logvar_prior_z[i].cuda().exp())
+		#mu_z[i] = mu_z[i].cuda()
+		mu_z[i] = mu_z[i]
+		#mu_prior_z[i] = mu_prior_z[i].cuda()
+		
+		#mu_diff = mu_z[i] - mu_prior_z[i]
+		mu_diff = mu_z[i]
+		#KL_z += -0.5 * torch.sum(1 + logvar_z[i].cuda() - logvar_prior_z[i].cuda() - logvar_z[i].cuda().exp()/logvar_prior_z[i].cuda().exp() - mu_diff.cuda().pow(2)/logvar_prior_z[i].cuda().exp())
 		#KL_z += -0.5 * torch.sum(1 + logvar_z[i] - logvar_prior_z[i]
 		#	- logvar_z[i].exp()/logvar_prior_z[i].exp() - mu_diff.pow(2)/logvar_prior_z[i].exp())
+		KL_z += -0.5 * torch.sum(1 + logvar_z[i] - logvar_z[i].exp() - mu_diff.pow(2))
 
 	return MSE + KL_f + KL_z
 
@@ -194,7 +210,7 @@ def train(data, net, z_prior = False):
 	losses = []
 	data = data.transpose(0,1)
 	current = time.time()
-	for epoch in range(1000):
+	for epoch in range(200):
 		total_loss = 0
 
 		if epoch == 0:
@@ -203,12 +219,14 @@ def train(data, net, z_prior = False):
 		print(epoch)
 
 		optimizer.zero_grad()
+		
 		recon_x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z = net(data)
-
-		if not z_prior:
-			mu_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
-			logvar_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
-		loss = loss_function(recon_x, data, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z)
+		# if not z_prior:
+		# 	mu_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
+		# 	logvar_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
+		
+		#loss = loss_function(recon_x, data, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z)
+		loss = loss_function(recon_x, data, mu_f, logvar_f, mu_z, logvar_z)
 		loss.backward()
 		optimizer.step()
 
@@ -233,24 +251,25 @@ def train(data, net, z_prior = False):
 # X_train/test stores the frames: (N_train, T, width, height, N_channel)
 # A_train/test stores the labels of the attributes: (N_train, T, 4, 6)
 # D_train/test stores the labels of the actions: (N_train, T, 9)
-X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
+if __name__ == '__main__':
+	X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
 
-X_train = torch.from_numpy(X_train)
-X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel to the correct location
+	X_train = torch.from_numpy(X_train)
+	X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel to the correct location
 
 
-X_train = X_train.to(device)
+	X_train = X_train.to(device)
 
-#subsample to 100 points
-X_train = X_train.narrow(0, 0, 100).cuda() 
+	#subsample to 100 points
+	X_train = X_train.narrow(0, 0, 1)#.cuda() 
 
-latent_dimz = 9 # total of 9 different actions 
-latent_dimf = 1296 # total number of types of characters
-net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
-net.to(device)
-torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
-losses = train(X_train, net)
-torch.save(net.state_dict(), 'SavedModels/post_train.pt') #remeber to change this for different models
-plt.plot(losses)
-plt.show()
+	latent_dimz = 32 # total of 9 different actions 
+	latent_dimf = 256 # total number of types of characters
+	net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
+	net.to(device)
+	torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
+	losses = train(X_train, net)
+	torch.save(net.state_dict(), 'SavedModels/post_train.pt') #remeber to change this for different models
+	plt.plot(losses)
+	plt.show()
 
