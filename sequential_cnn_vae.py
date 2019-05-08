@@ -168,8 +168,10 @@ class CNNSequentialVAE(nn.Module):
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z):
-	#Loss = -ELBO = -E_q[log p(x | z,f)] + KL(q(f|x) | p(f)) + KL(q(z|x) | p(z))
-	MSE = sum([0.5*F.mse_loss(recon_x[i].squeeze(), x[i].squeeze()) for i in range(len(x))]) # MC estimate of -E_q[log p(x | z,f)]
+	#Loss = -ELBO = -E_q[log p(x | z,f)] + KL(q(f|x) | p(f)) + KL(q(z|x) | p(z)
+	recon_x = torch.cat(recon_x, 0).view(8,-1, 3, 64, 64)
+	#MSE = sum([0.5*F.mse_loss(recon_x[i].squeeze(), x[i].squeeze()) for i in range(len(x))]) # MC estimate of -E_q[log p(x | z,f)]
+	MSE = 0.5*F.mse_loss(recon_x, x, reduction='sum')
 	KL_f = -0.5 * torch.sum(1 + logvar_f - mu_f.pow(2) - logvar_f.exp()) # exact value of KL(q(f|x)|p(f))
 	KL_z = 0 # MC estimate of KL(q(z|x) | p(z))
 	for i in range(len(mu_z)):
@@ -194,7 +196,7 @@ def train(data, net, z_prior = False):
 	losses = []
 	data = data.transpose(0,1)
 	current = time.time()
-	for epoch in range(1000):
+	for epoch in range(10000):
 		total_loss = 0
 
 		if epoch == 0:
@@ -243,7 +245,7 @@ X_train = X_train.to(device)
 
 #subsample to 100 points
 #X_train = X_train.narrow(0, 0, 100).cuda() 
-X_train = X_train[0:10].cuda()
+X_train = X_train[0:500].cuda()
 
 latent_dimz = 32 # total of 9 different actions 
 latent_dimf = 256 # total number of types of characters
@@ -251,7 +253,7 @@ net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
 net.to(device)
 torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
 losses = train(X_train, net)
-torch.save(net.state_dict(), 'SavedModels/post_train_test.pt') #remeber to change this for different models
+torch.save(net.state_dict(), 'SavedModels/post_train_1000pts.pt') #remeber to change this for different models
 plt.plot(losses)
 plt.show()
 
