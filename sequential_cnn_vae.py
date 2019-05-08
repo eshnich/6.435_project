@@ -23,8 +23,8 @@ class RNN(nn.Module):
 
 	def forward(self, input, hidden):
 		combined = torch.cat((input, hidden), 1)
-		hidden = self.i2h(combined)
-		output = self.i2o(combined)
+		hidden = F.elu(self.i2h(combined))
+		output = F.elu(self.i2o(combined))
 		return output, hidden
 
 	def initHidden(self, batch_size):
@@ -102,10 +102,10 @@ class CNNSequentialVAE(nn.Module):
 		return mu, logvar
 
 	def prior(self, z):
-		hidden = self.RNN_prior.initHidden(z[0].size()[0]).cuda()
-		mu_prior = []
-		logvar_prior = []
-		for i in range(len(z)):
+		hidden = self.RNN_prior.initHidden(z[0].size()[0])
+		mu_prior = [torch.zeros(z[0].size()[0], self.latent_dimz)]
+		logvar_prior = [torch.zeros(z[0].size()[0], self.latent_dimz)]
+		for i in range(len(z)-1):
 			output, hidden = self.RNN_prior(z[i], hidden)
 			mu, logvar = torch.split(output, self.latent_dimz, dim=1)
 			mu_prior.append(mu)
@@ -197,9 +197,9 @@ def train(data, net, z_prior = False):
 		optimizer.zero_grad()
 		recon_x, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z = net(data)
 
-		if not z_prior:
-			mu_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
-			logvar_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
+		# if not z_prior:
+		# 	mu_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
+		# 	logvar_prior_z = [torch.zeros(1, net.latent_dimz) for i in range(len(mu_z))]
 		loss = loss_function(recon_x, data, mu_f, logvar_f, mu_prior_z, logvar_prior_z, mu_z, logvar_z)
 		loss.backward()
 		optimizer.step()
