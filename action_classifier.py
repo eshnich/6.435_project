@@ -9,6 +9,24 @@ import time
 import math
 import matplotlib.pyplot as plt
 
+class RNN(nn.Module):
+	def __init__(self, input_size, hidden_size, output_size):
+		super(RNN, self).__init__()
+
+		self.hidden_size = hidden_size
+
+		self.i2h = nn.Linear(input_size + hidden_size, hidden_size)
+		self.i2o = nn.Linear(input_size + hidden_size, output_size)
+
+	def forward(self, input, hidden):
+		combined = torch.cat((input, hidden), 1)
+		hidden = F.elu(self.i2h(combined))
+		output = F.elu(self.i2o(combined))
+		return output, hidden
+
+	def initHidden(self, batch_size):
+		return torch.zeros(batch_size, self.hidden_size)
+
 
 class CNN(nn.Module):
 	def __init__(self, image_channels, x_height, x_width, no_of_frames):
@@ -24,8 +42,10 @@ class CNN(nn.Module):
 		self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(4, 4), stride=2)
 		self.conv4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=(4, 4), stride=2)	
 		self.hidden = 512
-		self.fc1 = nn.Linear(in_features=256*2*2*no_of_frames, out_features=self.hidden)
-		self.fc2 = nn.Linear(in_features = self.hidden, out_features = 6)
+		#self.fc1 = nn.Linear(in_features=256*2*2*no_of_frames, out_features=self.hidden)
+		#self.fc2 = nn.Linear(in_features = self.hidden, out_features = 6)
+		self.fc = nn.Linear(in_features = self.hidden, out_features = 9)
+		self.RNN = RNN(256*2*2, self.hidden, self.hidden)
 
 	def encode(self, x):
 		h = x
@@ -38,13 +58,17 @@ class CNN(nn.Module):
 		return h
 
 	def forward(self, x):
-		h = torch.cat([self.encode(frame) for frame in x], 1)
-		h = F.elu(self.fc1(h))
-		h = self.fc2(h)
-		return h
+		h = [self.encode(frame) for frame in x]
+
+		hidden = self.RNN.initHidden(x[0].size()[0])
+		for i in range(len(x)):
+			output, hidden = self.RNN(h[i], hidden)
+
+		output = self.fc(output)
+		return output
 
 def get_accuracy(data, labels, net):
-	pred = [net(data[i].view(1,8,64,64,3).transpose(0,1)).max(1)[1].item() == labels[i].item() for i in range(len(data))]
+	pred = [net(data[i].view(1,8,3, 64,64).transpose(0,1)).max(1)[1].item() == labels[i].item() for i in range(len(data))]
 	return sum(pred)/float(len(data))
 
 def train(input_data, labels, net):
@@ -56,7 +80,7 @@ def train(input_data, labels, net):
 	losses = []
 	data = input_data.transpose(0,1)
 	current = time.time()
-	for epoch in range(1000):
+	for epoch in range(50):
 		total_loss = 0
 
 		print(epoch)
@@ -91,15 +115,17 @@ if __name__ == "__main__":
 	X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
 	X_train = torch.from_numpy(X_train)
 	X_train = X_train.transpose(3,4).transpose(2,3)
-	num_samples = 100
-	data = torch.from_numpy(X_train[:num_samples]).cuda()
+	num_samples = 10
+	#data = torch.from_numpy(X_train[:num_samples])#.cuda()
+	data = X_train.narrow(0,0,num_samples)#.cuda()
 	print(data.size())
-	attr = 0
-	labels = [[i for i in range(6) if A_train[j][0][attr][i] ==1][0] for j in range(len(A_train))]
-	labels = torch.LongTensor(labels[:num_samples]).cuda()
+	#attr = 0
+	#embed()
+	labels = [[i for i in range(9) if D_train[j][0][i] ==1][0] for j in range(len(D_train))]
+	labels = torch.LongTensor(labels[:num_samples])#.cuda()
 	net = CNN(3, 64, 64, 8)
 	net.to(device)
 	print("pre-train accuracy = ", get_accuracy(data, labels, net))
 	train(data, labels, net)
 	print("final test accuracy = ", get_accuracy(data, labels, net))
-	torch.save(net.state_dict(), 'SavedModels/classifier_attr_%d.pt' % attr)
+	torch.save(net.state_dict(), 'SavedModels/classifier_action.pt')
