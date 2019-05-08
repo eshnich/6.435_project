@@ -9,16 +9,6 @@ import time
 import math
 import matplotlib.pyplot as plt
 
-if torch.cuda.is_available():
-        print("CUDA IS AVAILABLE")
-        device = torch.device("cuda:0")
-        print("DEVICE:", device)
-else:
-        print("CUDE IS NOT AVAILABLE")
-        device = torch.device("cpu")
-        print(device)
-
-
 
 class CNN(nn.Module):
 	def __init__(self, image_channels, x_height, x_width, no_of_frames):
@@ -88,18 +78,28 @@ def train(input_data, labels, net):
 
 	return losses
 
-X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
-X_train = torch.from_numpy(X_train)
-X_train = X_train.transpose(3,4).transpose(2,3)
-num_samples = 100
-data = torch.from_numpy(X_train[:num_samples]).cuda()
-print(data.size())
-attr = 0
-labels = [[i for i in range(6) if A_train[j][0][attr][i] ==1][0] for j in range(len(A_train))]
-labels = torch.LongTensor(labels[:num_samples]).cuda()
-net = CNN(3, 64, 64, 8)
-net.to(device)
-print("pre-train accuracy = ", get_accuracy(data, labels, net))
-train(data, labels, net)
-print("final test accuracy = ", get_accuracy(data, labels, net))
-torch.save(net.state_dict(), 'SavedModels/classifier_attr_%d.pt' % attr)
+if __name__ == "__main__":
+	if torch.cuda.is_available():
+        print("CUDA IS AVAILABLE")
+        device = torch.device("cuda:0")
+        print("DEVICE:", device)
+	else:
+        print("CUDE IS NOT AVAILABLE")
+        device = torch.device("cpu")
+        print(device)
+
+	X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
+	X_train = torch.from_numpy(X_train)
+	X_train = X_train.transpose(3,4).transpose(2,3)
+	num_samples = 100
+	data = torch.from_numpy(X_train[:num_samples]).cuda()
+	print(data.size())
+	attr = 0
+	labels = [[i for i in range(6) if A_train[j][0][attr][i] ==1][0] for j in range(len(A_train))]
+	labels = torch.LongTensor(labels[:num_samples]).cuda()
+	net = CNN(3, 64, 64, 8)
+	net.to(device)
+	print("pre-train accuracy = ", get_accuracy(data, labels, net))
+	train(data, labels, net)
+	print("final test accuracy = ", get_accuracy(data, labels, net))
+	torch.save(net.state_dict(), 'SavedModels/classifier_attr_%d.pt' % attr)

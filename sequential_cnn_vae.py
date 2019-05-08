@@ -10,16 +10,6 @@ import math
 import matplotlib.pyplot as plt
 
 
-if torch.cuda.is_available():
-        print("CUDA IS AVAILABLE")
-        device = torch.device("cuda:0")
-        print("DEVICE:", device)
-else:
-        print("CUDE IS NOT AVAILABLE")
-        device = torch.device("cpu")
-        print(device)
-
-
 # probably want to figure out how to use a more sophisticated RNN for higher dimensional data (LSTM, etc.)
 class RNN(nn.Module):
 	def __init__(self, input_size, hidden_size, output_size):
@@ -235,25 +225,36 @@ def train(data, net, z_prior = False):
 # X_train/test stores the frames: (N_train, T, width, height, N_channel)
 # A_train/test stores the labels of the attributes: (N_train, T, 4, 6)
 # D_train/test stores the labels of the actions: (N_train, T, 9)
-X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
 
-X_train = torch.from_numpy(X_train)
-X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel to the correct location
+if __name__ == "__main__":
+
+	if torch.cuda.is_available():
+        print("CUDA IS AVAILABLE")
+        device = torch.device("cuda:0")
+        print("DEVICE:", device)
+	else:
+        print("CUDE IS NOT AVAILABLE")
+        device = torch.device("cpu")
+        print(device)
+	X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
+
+	X_train = torch.from_numpy(X_train)
+	X_train = X_train.transpose(3,4).transpose(2,3) #hacky way to move the channel to the correct location
 
 
-X_train = X_train.to(device)
+	X_train = X_train.to(device)
 
-#subsample to 100 points
-#X_train = X_train.narrow(0, 0, 100).cuda() 
-X_train = X_train[0:500].cuda()
+	#subsample to 100 points
+	#X_train = X_train.narrow(0, 0, 100).cuda() 
+	X_train = X_train[0:500].cuda()
 
-latent_dimz = 32 # total of 9 different actions 
-latent_dimf = 256 # total number of types of characters
-net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
-net.to(device)
-torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
-losses = train(X_train, net)
-torch.save(net.state_dict(), 'SavedModels/post_train_1000pts.pt') #remeber to change this for different models
-plt.plot(losses)
-plt.show()
+	latent_dimz = 32 # total of 9 different actions 
+	latent_dimf = 256 # total number of types of characters
+	net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
+	net.to(device)
+	torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
+	losses = train(X_train, net)
+	torch.save(net.state_dict(), 'SavedModels/post_train_1000pts.pt') #remeber to change this for different models
+	plt.plot(losses)
+	plt.show()
 
