@@ -22,7 +22,7 @@ class RNN(nn.Module):
 		self.softmax = nn.LogSoftmax(dim=1)
 
 	def forward(self, input, hidden):
-		combined = torch.cat((input, hidden), 1)
+		combined = torch.cat((input.cuda(), hidden.cuda()), 1)
 		hidden = F.elu(self.i2h(combined))
 		output = F.elu(self.i2o(combined))
 		return output, hidden
@@ -229,13 +229,13 @@ def train(data, net, z_prior = False):
 if __name__ == "__main__":
 
 	if torch.cuda.is_available():
-        print("CUDA IS AVAILABLE")
-        device = torch.device("cuda:0")
-        print("DEVICE:", device)
+		print("CUDA IS AVAILABLE")
+		device = torch.device("cuda:0")
+		print("DEVICE:", device)
 	else:
-        print("CUDE IS NOT AVAILABLE")
-        device = torch.device("cpu")
-        print(device)
+		print("CUDE IS NOT AVAILABLE")
+		device = torch.device("cpu")
+		print(device)
 	X_train, X_test, A_train, A_test, D_train, D_test = sprites_act('', return_labels=True)
 
 	X_train = torch.from_numpy(X_train)
@@ -246,15 +246,14 @@ if __name__ == "__main__":
 
 	#subsample to 100 points
 	#X_train = X_train.narrow(0, 0, 100).cuda() 
-	X_train = X_train[0:500].cuda()
+	X_train = X_train[0:100].cuda()
 
 	latent_dimz = 32 # total of 9 different actions 
-	latent_dimf = 256 # total number of types of characters
+	latent_dimf = 32 # total number of types of characters
 	net = CNNSequentialVAE(3, 64, 64, 8, latent_dimz, latent_dimf)
 	net.to(device)
-	torch.save(net.state_dict(), 'SavedModels/test_net.pt') #remeber to change this for different models
 	losses = train(X_train, net)
-	torch.save(net.state_dict(), 'SavedModels/post_train_1000pts.pt') #remeber to change this for different models
+	torch.save(net.state_dict(), 'SavedModels/post_train_with_prior.pt') #remeber to change this for different models
 	plt.plot(losses)
 	plt.show()
 
